@@ -9,7 +9,7 @@ on:
 
 env:
   # Image refs must be lowercase; github.repository is Sergii-Minko/voiceaiagent.
-  IMAGE: https://github.com/Sergii-Minko/voiceaiagent
+  IMAGE: ghcr.io/Sergii-Minko/voiceaiagent
 
 jobs:
   test:
