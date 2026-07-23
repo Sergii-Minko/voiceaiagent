@@ -34,6 +34,9 @@ MODEL_ID = os.getenv("KOKORO_MODEL_ID", "kokoro")
 LANG_CODE = os.getenv("KOKORO_LANG_CODE", "a")  # 'a' = American English
 DEFAULT_VOICE = os.getenv("KOKORO_DEFAULT_VOICE", "af_nova")
 SAMPLE_RATE = 24000
+# Optional path to a local kokoro .pth checkpoint file.
+# When set, KPipeline loads from this file instead of downloading from Hugging Face.
+KOKORO_MODEL_PATH = os.getenv("KOKORO_MODEL_PATH", "")
 
 _pipeline = None
 
@@ -43,7 +46,16 @@ def _load_pipeline() -> None:
     logger.info("loading kokoro pipeline (lang=%s)", LANG_CODE)
     from kokoro import KPipeline  # type: ignore[import-not-found]
 
-    _pipeline = KPipeline(lang_code=LANG_CODE)
+    if KOKORO_MODEL_PATH:
+        logger.info("loading kokoro from local path: %s", KOKORO_MODEL_PATH)
+        # KPipeline 0.9.x doesn't accept model_path kwarg directly.
+        # Instead, load the model via KModel with a local .pth path and pass it to KPipeline.
+        from kokoro.model import KModel  # type: ignore[import-not-found]
+
+        model = KModel(model=KOKORO_MODEL_PATH)
+        _pipeline = KPipeline(lang_code=LANG_CODE, model=model)
+    else:
+        _pipeline = KPipeline(lang_code=LANG_CODE)
     logger.info("kokoro pipeline ready")
 
 

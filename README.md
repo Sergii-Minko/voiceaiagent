@@ -21,7 +21,7 @@ Children speak HTTP only over `127.0.0.1`. The image exposes four ports: `8080` 
 
 ## Getting started
 
-Run the prebuilt image (amd64 + arm64):
+### Quick start (prebuilt image — CPU)
 
 ```bash
 docker run --rm -it \
@@ -30,31 +30,36 @@ docker run --rm -it \
   ghcr.io/shaynep/local-voice-ai:latest
 ```
 
-Or build from source (also the path for GPU builds):
+Open <http://localhost:8080>. The first boot downloads the Nemotron + LLM weights — the page shows per-service progress with download sizes, and the terminal logs a compact status heartbeat plus an unmissable "ready" banner when everything is up. Weights are cached in the `models` volume, so later boots are fast and work offline.
 
-```bash
-docker compose up --build
+### GPU (NVIDIA) with local models — Windows / PowerShell
+
+Цей варіант підходить, якщо всі моделі вже завантажені на локальний диск і ви хочете запустити контейнер повністю офлайн, без звернень до Hugging Face.
+
+```powershell
+# Запуск (без перезбірки образу)
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.local-models.yml up -d
+
+# Перевірити логи
+docker logs voiceaiagent-app-1 --tail 30
+
+# Зупинити
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.local-models.yml down
 ```
 
-Open <http://localhost:8080>. The first boot downloads the Nemotron + LLM weights — the page shows per-service progress with download sizes, and the terminal logs a compact status heartbeat plus an unmissable “ready” banner when everything is up. Weights are cached in the `models` volume, so later boots are fast and work offline.
+Моделі мають лежати в `C:\LocalVoiceAiOriginal\VoiceAgentAi\AgentModels\` або в директорії, заданій змінною `LOCAL_MODELS_DIR`.
 
-### GPU (NVIDIA)
+### GPU (NVIDIA) — зі збиранням образу
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
 ```
 
-The overlay swaps in the CUDA llama.cpp binary + CUDA torch wheels, grants the
-GPU to the container, and offloads the whole LLM (`LLAMA_N_GPU_LAYERS=999`,
-override to partially offload). Requires the [NVIDIA container toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) —
-verify with `docker run --gpus all ubuntu nvidia-smi`.
+The overlay swaps in the CUDA llama.cpp binary + CUDA torch wheels, grants the GPU to the container, and offloads the whole LLM (`LLAMA_N_GPU_LAYERS=999`, override to partially offload). Requires the [NVIDIA container toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) — verify with `docker run --gpus all ubuntu nvidia-smi`.
 
 ### Apple Silicon
 
-The prebuilt image runs natively (arm64), but **CPU-only** — Docker on macOS is a
-VM with no Metal access. For GPU (Metal) inference, run bare-metal via
-[Local development](#local-development-no-docker) below, where `llama-server`
-picks up Metal automatically.
+The prebuilt image runs natively (arm64), but **CPU-only** — Docker on macOS is a VM with no Metal access. For GPU (Metal) inference, run bare-metal via [Local development](#local-development-no-docker) below, where `llama-server` picks up Metal automatically.
 
 ## Swapping in cloud providers
 
@@ -69,10 +74,32 @@ Each service has a single "manage" decision driven by its base URL — point it 
 
 The supervisor logs which children it manages on startup.
 
+## Local models (fully offline) — docker-compose.local-models.yml
+
+The `docker-compose.local-models.yml` overlay bind-mounts all model files from the host so nothing is downloaded from Hugging Face or other remote sources.
+
+**Required model files on the host:**
+
+| Модель | Директорія | Файл |
+|---|---|---|
+| LLM (Gemma 4 GGUF) | `gemma-4-E2B-it-qat-GGUF/` | `gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf` |
+| STT (Nemotron) | `nemotron-speech-streaming-en-0.6b/` | `nemotron-speech-streaming-en-0.6b.nemo` |
+| TTS (Kokoro) | `Kokoro-82M/` | `kokoro-v1_0.pth` |
+| Turn detector | `models--livekit--turn-detector/` | (HF cache structure) |
+| Wake word | `models/wakeword/` | `hey_livekit.onnx` |
+
+Шлях до моделей задається змінною `LOCAL_MODELS_DIR` (за замовчуванням `C:\LocalVoiceAiOriginal\VoiceAgentAi\AgentModels`).
+
+**Як це працює:**
+- `ARG DOWNLOAD_AGENT_FILES=skip` у Dockerfile пропускає завантаження VAD/turn-detector/wakeword під час збірки
+- `LLAMA_MODEL_PATH`, `NEMOTRON_MODEL_PATH`, `KOKORO_MODEL_PATH` вказують на змонтовані файли всередині контейнера
+- Kokoro завантажується через `KModel(model=/models/kokoro/kokoro-v1_0.pth)` замість Hugging Face
+- Nemotron використовує `ASRModel.restore_from(restore_path=...)` замість `from_pretrained()`, яка не приймає локальні шляхи
+- `LLAMA_OFFLINE=1` вимикає мережеві перевірки для llama.cpp
+
 ## Local development (no Docker)
 
-Requires Python 3.11+, plus the `livekit-server` and `llama-server` binaries on
-your PATH (macOS: `brew install livekit llama.cpp`).
+Requires Python 3.11+, plus the `livekit-server` and `llama-server` binaries on your PATH (macOS: `brew install livekit llama.cpp`).
 
 ```bash
 # Python side
@@ -121,6 +148,8 @@ cd frontend && pnpm install && pnpm run dev
 ├─ Dockerfile              # multi-stage build
 ├─ docker-compose.yml      # one service (CPU default)
 ├─ docker-compose.gpu.yml  # NVIDIA overlay: CUDA build + GPU reservation
+├─ docker-compose.local-models.yml  # Local model bind-mounts (fully offline)
+├─ RUN-POWERSHELL.md       # PowerShell commands reference
 ├─ .github/workflows/      # CI: tests + multi-arch image publish to GHCR
 └─ pyproject.toml          # one Python package, one venv
 ```
@@ -132,7 +161,7 @@ See `.env` for the full list. The most important ones:
 - `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` — local-default; override for cloud.
 - `LLAMA_BASE_URL`, `LLAMA_MODEL`, `LLAMA_HF_REPO`, `LLAMA_N_GPU_LAYERS`
 - `LLAMA_OFFLINE` — offline LLM startup. Auto by default: once the model is cached, it starts with no internet (skips the Hugging Face lookup); the first run still downloads. Set `LLAMA_OFFLINE=1` to force it, or `0` to always re-check. `LLAMA_MODEL_PATH=/models/…​.gguf` loads a local file directly instead.
-- `WAKE_WORD=1` — the agent joins deaf and only starts listening after it hears **“Hey LiveKit”** (on-device detection via [livekit-wakeword](https://github.com/livekit/livekit-wakeword), model baked into the image). `WAKE_WORD_THRESHOLD` (default `0.5`) tunes sensitivity; scores are logged at DEBUG for calibration.
+- `WAKE_WORD=1` — the agent joins deaf and only starts listening after it hears **"Hey LiveKit"** (on-device detection via [livekit-wakeword](https://github.com/livekit/livekit-wakeword), model baked into the image). `WAKE_WORD_THRESHOLD` (default `0.5`) tunes sensitivity; scores are logged at DEBUG for calibration.
 - `STT_PROVIDER` (`nemotron`|`whisper`), `STT_BASE_URL`, `STT_MODEL`; `WHISPER_MODEL` picks the faster-whisper model for the whisper provider.
 - `TTS_BASE_URL`, `TTS_VOICE`
 - `WEB_PORT` (default `8080`)

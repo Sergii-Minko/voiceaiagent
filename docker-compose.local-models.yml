@@ -1,0 +1,54 @@
+# Local models overlay — bind-mounts all model files from the host
+# so nothing is downloaded from Hugging Face or other remote sources.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.local-models.yml up --build
+
+services:
+  app:
+    build:
+      args:
+        # Use the local llama.cpp CUDA image that's already on the host
+        LLAMA_IMAGE: ghcr.io/ggml-org/llama.cpp:server-cuda
+        # Skip downloading VAD/turn-detector/wakeword at build time — we mount them
+        DOWNLOAD_AGENT_FILES: skip
+    volumes:
+      # ── LLM model ──────────────────────────────────────────────
+      # Gemma 4 E2B GGUF (~2.5 GB) + mmproj (~942 MB)
+      - "${LOCAL_MODELS_DIR:-C:/LocalVoiceAiOriginal/VoiceAgentAi/AgentModels}/gemma-4-E2B-it-qat-GGUF:/models/llm:ro"
+
+      # ── STT (Nemotron) ─────────────────────────────────────────
+      # Nemotron .nemo model (~2.4 GB) + tokenizer files
+      - "${LOCAL_MODELS_DIR:-C:/LocalVoiceAiOriginal/VoiceAgentAi/AgentModels}/nemotron-speech-streaming-en-0.6b:/models/nemotron:ro"
+
+      # ── TTS (Kokoro) ───────────────────────────────────────────
+      # Kokoro weights (~313 MB) + voices directory
+      - "${LOCAL_MODELS_DIR:-C:/LocalVoiceAiOriginal/VoiceAgentAi/AgentModels}/Kokoro-82M:/models/kokoro:ro"
+
+      # ── Turn detector (LiveKit) ────────────────────────────────
+      # Already downloaded from Hugging Face hub cache
+      - "${LOCAL_MODELS_DIR:-C:/LocalVoiceAiOriginal/VoiceAgentAi/AgentModels}/models--livekit--turn-detector:/models/hub/models--livekit--turn-detector:ro"
+
+
+      # ── Wake word model ────────────────────────────────────────
+      - ./models/wakeword:/app/models/wakeword:ro
+
+    environment:
+      # ── LLM ────────────────────────────────────────────────────
+      # Point directly to the local .gguf file (avoids HF download entirely)
+      LLAMA_MODEL_PATH: /models/llm/gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf
+      # Force offline mode (no network check at all)
+      LLAMA_OFFLINE: "1"
+
+      # ── STT (Nemotron) ─────────────────────────────────────────
+      # Point to the local .nemo file — must end in .nemo for NeMo's from_pretrained
+      NEMOTRON_MODEL_PATH: /models/nemotron/nemotron-speech-streaming-en-0.6b.nemo
+      NEMOTRON_MODEL_NAME: /models/nemotron/nemotron-speech-streaming-en-0.6b.nemo
+
+      # ── TTS (Kokoro) ───────────────────────────────────────────
+      # Kokoro will load weights from the mounted cache
+      KOKORO_MODEL_PATH: /models/kokoro/kokoro-v1_0.pth
+
+      # ── GPU ────────────────────────────────────────────────────
+      LLAMA_N_GPU_LAYERS: 999   # full GPU offload (RTX 5090)
+      DEVICE: cuda

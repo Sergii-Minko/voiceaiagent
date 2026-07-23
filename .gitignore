@@ -8,3 +8,9 @@ inference/llama/models/
 
 # Packaging metadata from editable installs (pip install -e / uv sync)
 *.egg-info/
+
+# Local models downloaded for offline use
+models/
+
+# Local config overlay
+.env.local-models

@@ -30,15 +30,31 @@ MODEL_NAME = os.getenv("NEMOTRON_MODEL_NAME", "nvidia/nemotron-speech-streaming-
 MODEL_ID = os.getenv("NEMOTRON_MODEL_ID", "nemotron-speech-streaming")
 TARGET_SAMPLE_RATE = 16000
 
+# Detect whether MODEL_NAME is a local path or a Hugging Face model id.
+# NeMo's from_pretrained accepts both, but local paths must point to a .nemo
+# file or a directory containing one.
+_MODEL_PATH = os.getenv("NEMOTRON_MODEL_PATH", "")
+if not _MODEL_PATH:
+    # Fall back to MODEL_NAME — if it looks like a filesystem path, use it directly.
+    import os
+    _MODEL_PATH = MODEL_NAME if os.path.isabs(MODEL_NAME) or MODEL_NAME.startswith("/") else ""
+
 asr_model = None
 
 
 def load_model():
     global asr_model
-    logger.info("Loading model %s ...", MODEL_NAME)
     import nemo.collections.asr as nemo_asr
 
-    asr_model = nemo_asr.models.ASRModel.from_pretrained(MODEL_NAME)
+    if _MODEL_PATH and os.path.isfile(_MODEL_PATH):
+        # Local .nemo file — use restore_from which accepts a direct filesystem path.
+        logger.info("Loading model from local file: %s", _MODEL_PATH)
+        asr_model = nemo_asr.models.ASRModel.restore_from(restore_path=_MODEL_PATH)
+    else:
+        # Hugging Face model id — use from_pretrained (downloads or loads from cache).
+        model_source = _MODEL_PATH or MODEL_NAME
+        logger.info("Loading model %s ...", model_source)
+        asr_model = nemo_asr.models.ASRModel.from_pretrained(model_source)
     asr_model.eval()
 
     if torch.cuda.is_available():

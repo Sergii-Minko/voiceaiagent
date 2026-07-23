@@ -18,6 +18,10 @@ ARG LLAMA_IMAGE=ghcr.io/ggml-org/llama.cpp:server
 ARG LIVEKIT_IMAGE=livekit/livekit-server:latest
 ARG PYTHON_BASE=python:3.11-slim
 
+# Set to "skip" to avoid downloading VAD/turn-detector weights at build time
+# (for fully offline builds — mount them via docker-compose.local-models.yml)
+ARG DOWNLOAD_AGENT_FILES=
+
 # ---------------- frontend ----------------
 FROM node:20-slim AS frontend
 WORKDIR /app
@@ -44,6 +48,8 @@ FROM ${LIVEKIT_IMAGE} AS livekit-bin
 
 # ---------------- runtime ----------------
 FROM ${PYTHON_BASE} AS runtime
+
+ARG DOWNLOAD_AGENT_FILES
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -103,12 +109,22 @@ COPY --from=livekit-bin /livekit-server /usr/local/bin/livekit-server
 COPY --from=frontend /app/out /app/frontend/out
 ENV FRONTEND_DIR=/app/frontend/out
 
-# Pre-download VAD + turn detector weights so cold start is faster
-RUN python -m local_voice_ai.agent download-files || true
+# Pre-download VAD + turn detector weights so cold start is faster.
+# Skipped when DOWNLOAD_AGENT_FILES=skip (for fully offline builds —
+# mount turn-detector and wake word models via docker-compose.local-models.yml).
+RUN if [ "${DOWNLOAD_AGENT_FILES}" != "skip" ]; then \
+        python -m local_voice_ai.agent download-files || true; \
+    fi
 
-# Pretrained "hey livekit" wake word model (~1 MB), used when WAKE_WORD=1
-ADD https://github.com/livekit-examples/hello-wakeword/raw/main/client/models/hey_livekit.onnx \
-    /app/models/wakeword/hey_livekit.onnx
+# Pretrained "hey livekit" wake word model (~1 MB), used when WAKE_WORD=1.
+# Skipped when DOWNLOAD_AGENT_FILES=skip — mount from host instead.
+RUN if [ "${DOWNLOAD_AGENT_FILES}" != "skip" ]; then \
+        mkdir -p /app/models/wakeword && \
+        curl -fsSL -o /app/models/wakeword/hey_livekit.onnx \
+            https://github.com/livekit-examples/hello-wakeword/raw/main/client/models/hey_livekit.onnx; \
+    else \
+        mkdir -p /app/models/wakeword; \
+    fi
 
 EXPOSE 8080 7880 7881 7882/udp
 VOLUME ["/models"]
