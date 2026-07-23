@@ -221,3 +221,14 @@ docker run --rm --gpus all ubuntu nvidia-smi
 7. **Docker Compose overlay** — це просто merge словників, не чарівне об'єднання
 8. **GPU в Docker** потребує NVIDIA Container Toolkit окремо
 9. **Всі помилки були типовими** — несумісність версій бібліотек, неправильне API, особливості Docker на Windows. Жодна не була унікальною.
+
+---
+
+## Перелік виправлених файлів
+
+| Файл | Що змінено |
+|---|---|
+| [local_voice_ai/services/kokoro/server.py](local_voice_ai/services/kokoro/server.py) | Замінено `KPipeline(lang_code, model_path=...)` на `KModel(model=...)` + `KPipeline(lang_code, model=model)` |
+| [local_voice_ai/services/nemotron/server.py](local_voice_ai/services/nemotron/server.py) | Замінено `ASRModel.from_pretrained(local_path)` на `ASRModel.restore_from(restore_path=local_path)` |
+| [Dockerfile](Dockerfile) | Додано повторне `ARG DOWNLOAD_AGENT_FILES` після `FROM ... AS runtime` |
+| [docker-compose.local-models.yml](docker-compose.local-models.yml) | Створено — overlay з bind-mounts та змінними середовища для локальних моделей |
